@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Leitor de Comandos MIDI</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        padding: 20px;
+      }
+      button {
+        padding: 10px 20px;
+        font-size: 16px;
+      }
+      pre {
+        margin-top: 20px;
+        background: #f4f4f4;
+        padding: 15px;
+        border-radius: 8px;
+        height: 300px;
+        overflow-y: scroll;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Recebedor MIDI via Browser</h1>
+    <button id="start-midi">Iniciar Conexão MIDI</button>
+    <pre id="midi-log">Nenhuma mensagem MIDI recebida ainda.</pre>
+
+    <script>
+      const startButton = document.getElementById("start-midi");
+      const logArea = document.getElementById("midi-log");
+
+      function logMessage(message) {
+        logArea.textContent += `\n${message}`;
+        logArea.scrollTop = logArea.scrollHeight;
+      }
+
+      async function startMIDI() {
+        if (!navigator.requestMIDIAccess) {
+          alert("Web MIDI API não suportada neste navegador.");
+          return;
+        }
+
+        try {
+          const midiAccess = await navigator.requestMIDIAccess();
+          for (const input of midiAccess.inputs.values()) {
+            input.onmidimessage = handleMIDIMessage;
+          }
+
+          midiAccess.onstatechange = (event) => {
+            logMessage(`[Estado] ${event.port.name} ${event.port.state}`);
+          };
+
+          logMessage("Conexão MIDI estabelecida. Aguardando mensagens...");
+        } catch (error) {
+          console.error("Erro ao acessar MIDI:", error);
+          alert("Erro ao acessar MIDI. Veja o console para detalhes.");
+        }
+      }
+
+      function handleMIDIMessage(event) {
+        const data = event.data;
+        const hexData = Array.from(data)
+          .map((x) => x.toString(16).padStart(2, "0"))
+          .join(" ");
+        logMessage(`[${event.timeStamp.toFixed(0)} ms] Dados MIDI: ${hexData}`);
+      }
+
+      startButton.addEventListener("click", startMIDI);
+    </script>
+  </body>
+</html>
