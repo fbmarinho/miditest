@@ -9,9 +9,11 @@
         font-family: Arial, sans-serif;
         padding: 20px;
       }
-      button {
+      button,
+      select {
         padding: 10px 20px;
         font-size: 16px;
+        margin-right: 10px;
       }
       pre {
         margin-top: 20px;
@@ -21,16 +23,40 @@
         height: 300px;
         overflow-y: scroll;
       }
+
+      #pressed {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        font-size: 48px;
+        background-color: black;
+        color: white;
+        min-height: 50px;
+        width: 100%;
+        margin-top: 20px;
+      }
     </style>
   </head>
   <body>
-    <h1>Recebedor MIDI via Browser</h1>
-    <button id="start-midi">Iniciar Conexão MIDI</button>
+    <h1>MIDI via Browser</h1>
+
+    <button id="start-midi">Listar Dispositivos MIDI</button>
+    <select id="midi-inputs">
+      <option value="">Nenhum dispositivo encontrado</option>
+    </select>
+    <div id="pressed"></div>
+
     <pre id="midi-log">Nenhuma mensagem MIDI recebida ainda.</pre>
 
     <script>
+      const midiSelect = document.getElementById("midi-inputs");
       const startButton = document.getElementById("start-midi");
+      const pressed = document.getElementById("pressed");
       const logArea = document.getElementById("midi-log");
+
+      let midiAccess = null;
+      let currentInput = null;
+      var pressednotes = [];
 
       function logMessage(message) {
         logArea.textContent += `\n${message}`;
@@ -44,20 +70,35 @@
         }
 
         try {
-          const midiAccess = await navigator.requestMIDIAccess();
-          for (const input of midiAccess.inputs.values()) {
-            input.onmidimessage = handleMIDIMessage;
-          }
+          midiAccess = await navigator.requestMIDIAccess();
+          populateMIDIPorts();
 
-          midiAccess.onstatechange = (event) => {
-            logMessage(`[Estado] ${event.port.name} ${event.port.state}`);
+          midiAccess.onstatechange = () => {
+            populateMIDIPorts();
           };
 
-          logMessage("Conexão MIDI estabelecida. Aguardando mensagens...");
+          logMessage("Conexão MIDI estabelecida. Selecione um dispositivo.");
         } catch (error) {
           console.error("Erro ao acessar MIDI:", error);
           alert("Erro ao acessar MIDI. Veja o console para detalhes.");
         }
+      }
+
+      function populateMIDIPorts() {
+        midiSelect.innerHTML =
+          '<option value="">Selecione um dispositivo MIDI</option>';
+        var first = true;
+        for (const input of midiAccess.inputs.values()) {
+          const option = document.createElement("option");
+          option.value = input.id;
+          option.textContent = input.name;
+          if (first) {
+            option.selected = first;
+            first = false;
+          }
+          midiSelect.appendChild(option);
+        }
+        connectSelectedDevice();
       }
 
       function handleMIDIMessage(event) {
@@ -65,10 +106,84 @@
         const hexData = Array.from(data)
           .map((x) => x.toString(16).padStart(2, "0"))
           .join(" ");
-        logMessage(`[${event.timeStamp.toFixed(0)} ms] Dados MIDI: ${hexData}`);
+        const [status, note, velocity] = data;
+        let noteInfo = "";
+
+        if ((status & 0xf0) === 0x90 && velocity !== 0) {
+          noteInfo = `Note On: ${noteNumberToName(
+            note
+          )} Velocidade ${velocity}`;
+
+          pressednotes.push(noteNumberToName(note));
+        } else if (
+          (status & 0xf0) === 0x80 ||
+          ((status & 0xf0) === 0x90 && velocity === 0)
+        ) {
+          noteInfo = `Note Off: ${noteNumberToName(note)}`;
+
+          const index = pressednotes.indexOf(noteNumberToName(note));
+          if (index > -1) {
+            // only splice array when item is found
+            pressednotes.splice(index, 1); // 2nd parameter means remove one item only
+          }
+        }
+        displayPressedNotes();
+        logMessage(
+          `[${event.timeStamp.toFixed(
+            0
+          )} ms] Dados MIDI: ${hexData} ${noteInfo}`
+        );
+      }
+
+      function displayPressedNotes() {
+        pressed.innerHTML = "";
+        pressed.innerHTML = pressednotes.join("-");
+      }
+
+      function noteNumberToName(noteNumber) {
+        const noteNames = [
+          "C",
+          "C#",
+          "D",
+          "D#",
+          "E",
+          "F",
+          "F#",
+          "G",
+          "G#",
+          "A",
+          "A#",
+          "B",
+        ];
+        const noteIndex = noteNumber % 12;
+        const octave = Math.floor(noteNumber / 12) - 1;
+        return `${noteNames[noteIndex]}${octave}`;
+      }
+
+      function connectSelectedDevice() {
+        if (currentInput) {
+          currentInput.onmidimessage = null;
+        }
+
+        const selectedId = midiSelect.value;
+        if (!selectedId) {
+          logMessage("Nenhum dispositivo selecionado.");
+          return;
+        }
+
+        const selectedInput = Array.from(midiAccess.inputs.values()).find(
+          (input) => input.id === selectedId
+        );
+
+        if (selectedInput) {
+          currentInput = selectedInput;
+          currentInput.onmidimessage = handleMIDIMessage;
+          logMessage(`Conectado ao dispositivo: ${currentInput.name}`);
+        }
       }
 
       startButton.addEventListener("click", startMIDI);
+      midiSelect.addEventListener("change", connectSelectedDevice);
     </script>
   </body>
 </html>
